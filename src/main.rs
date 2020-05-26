@@ -72,9 +72,10 @@ unsafe fn send_key_event(key: &AutoKey, state: KeyState) {
     SendInput(1, &mut input, std::mem::size_of::<INPUT>() as _);
 }
 
-unsafe fn send_key_events(keys: &[AutoKey], state: KeyState) {
+use rand::prelude::*;
+unsafe fn send_key_events(keys: &[AutoKey], state: KeyState, rng : &mut ThreadRng) {
     for key in keys {
-        add_timer_event(key.delay.as_millis() as _, *key, state);
+        add_timer_event((key.delay.as_millis() + rng.gen_range(0, 10)) as _, *key, state);
     }
 }
 
@@ -89,11 +90,12 @@ fn main() {
         .collect();
 
     let mut receiver = Receiver::new();
+    let mut rng = thread_rng();
 
     while let Ok(key) = receiver.get() {
         match key {
             (Input::KeyBoard(key_code), state) if key_code == '2' as _ => unsafe {
-                send_key_events(&v, state);
+                send_key_events(&v, state, &mut rng);
             },
             _ => {}
         }
