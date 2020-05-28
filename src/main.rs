@@ -2,6 +2,8 @@ use rust_rawinput::{Input, KeyState, Receiver};
 use std::time::Duration;
 use winapi::um::winuser::{INPUT_u, SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP};
 
+mod ui;
+
 #[derive(Debug, Copy, Clone)]
 struct AutoKey {
     key: Input,
@@ -73,31 +75,37 @@ unsafe fn send_key_event(key: &AutoKey, state: KeyState) {
 }
 
 use rand::prelude::*;
-unsafe fn send_key_events(keys: &[AutoKey], state: KeyState, rng : &mut ThreadRng) {
+unsafe fn send_key_events(keys: &[AutoKey], state: KeyState, rng: &mut impl Rng) {
     for key in keys {
-        add_timer_event((key.delay.as_millis() + rng.gen_range(0, 10)) as _, *key, state);
+        add_timer_event(
+            (key.delay.as_millis() + rng.gen_range(0, 20)) as _,
+            *key,
+            state,
+        );
     }
 }
 
+use iced::Application;
 fn main() {
-    let v: Vec<_>;
+    // let v: Vec<_>;
 
-    v = (0..3)
-        .map(|i| AutoKey {
-            key: Input::KeyBoard(i + '3' as i32),
-            delay: Duration::from_millis((10 * (i + 1)) as _),
-        })
-        .collect();
+    // v = (0..3)
+    //     .map(|i| AutoKey {
+    //         key: Input::KeyBoard(i + '3' as i32),
+    //         delay: Duration::from_millis((20 * (i + 1)) as _),
+    //     })
+    //     .collect();
 
-    let mut receiver = Receiver::new();
-    let mut rng = thread_rng();
+    // let receiver = Receiver::new();
+    // let mut rng = thread_rng();
 
-    while let Ok(key) = receiver.get() {
-        match key {
-            (Input::KeyBoard(key_code), state) if key_code == '2' as _ => unsafe {
-                send_key_events(&v, state, &mut rng);
-            },
-            _ => {}
-        }
-    }
+    // while let Ok(key) = receiver.get() {
+    //     match key {
+    //         (Input::KeyBoard(key_code), state) if key_code == '2' as _ => unsafe {
+    //             send_key_events(&v, state, &mut rng);
+    //         },
+    //         _ => {}
+    //     }
+    // }
+    ui::UIState::run(iced::Settings::default());
 }

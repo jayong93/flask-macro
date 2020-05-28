@@ -9,5 +9,7 @@ edition = "2018"
 [dependencies]
 rust_rawinput = {git = "https://github.com/jayong93/Rust-Rawinput"}
 winapi = {version = "0.3.8", features = ["impl-default"]}
-rand = "0.7.3"
+rand = {version="0.7.3", features=["small_rng"]}
 lazy_static = "1.4.0"
+iced = "0.1.1"
+iced_native = "0.2.2"
