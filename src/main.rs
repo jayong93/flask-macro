@@ -1,3 +1,4 @@
+#![windows_subsystem = "windows"]
 use rust_rawinput::{Input, KeyState, Receiver};
 use std::time::Duration;
 use winapi::um::winuser::{INPUT_u, SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP};
