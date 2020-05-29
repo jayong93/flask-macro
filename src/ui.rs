@@ -264,6 +264,7 @@ impl Application for UIState {
                     .push(
                         Text::new(format!("Key: {}", auto_key.key.to_string()))
                             .width(Length::Fill)
+                            .vertical_alignment(VerticalAlignment::Center)
                             .horizontal_alignment(HorizontalAlignment::Center),
                     )
                     .push(
@@ -274,6 +275,7 @@ impl Application for UIState {
                 UISubState::EditKey { key_id } if *key_id == idx => row
                     .push(
                         Text::new("Press new key")
+                            .vertical_alignment(VerticalAlignment::Center)
                             .horizontal_alignment(HorizontalAlignment::Center),
                     )
                     .push(
@@ -281,12 +283,14 @@ impl Application for UIState {
                             "Delay: {} s",
                             auto_key.delay.as_secs_f64().to_string()
                         ))
+                        .vertical_alignment(VerticalAlignment::Center)
                         .horizontal_alignment(HorizontalAlignment::Center),
                     ),
                 _ => row
                     .push(
                         Text::new(format!("Key: {}", auto_key.key.to_string()))
                             .width(Length::Fill)
+                            .vertical_alignment(VerticalAlignment::Center)
                             .horizontal_alignment(HorizontalAlignment::Center),
                     )
                     .push(
@@ -300,6 +304,7 @@ impl Application for UIState {
                             auto_key.delay.as_secs_f64().to_string()
                         ))
                         .width(Length::Fill)
+                        .vertical_alignment(VerticalAlignment::Center)
                         .horizontal_alignment(HorizontalAlignment::Center),
                     )
                     .push(
@@ -315,7 +320,7 @@ impl Application for UIState {
                     ),
             }
             .into();
-            scroll = scroll.push(row);
+            scroll = scroll.push(Container::new(row).center_y().padding(5).style(BorderedContainer));
         }
 
         if let UISubState::AddKey {
@@ -380,7 +385,13 @@ impl Application for UIState {
             Column::new()
                 .align_items(Align::Center)
                 .spacing(50)
-                .push(scroll.width(Length::Fill).height(Length::Fill))
+                .push(
+                    Container::new(scroll.width(Length::Fill).height(Length::Fill))
+                        .padding(5)
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .style(BorderedContainer),
+                )
                 .push(Text::new(if let UISubState::EditHotkey = self.sub_state {
                     "Press Hotkey".to_string()
                 } else {
@@ -397,6 +408,19 @@ impl Application for UIState {
         .center_x()
         .center_y()
         .into()
+    }
+}
+
+struct BorderedContainer;
+
+impl widget::container::StyleSheet for BorderedContainer {
+    fn style(&self) -> widget::container::Style {
+        widget::container::Style {
+            border_width: 2,
+            border_color: Color::from_rgb(0.5, 0.5, 0.5),
+            border_radius: 10,
+            ..Default::default()
+        }
     }
 }
 
