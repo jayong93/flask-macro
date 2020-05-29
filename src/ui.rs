@@ -37,14 +37,16 @@ enum UISubState {
     EditHotkey,
 }
 
+struct AutoKeyState(
+    AutoKey,
+    text_input::State,
+    button::State,
+    button::State,
+    button::State,
+);
+
 pub struct UIState {
-    macro_keys: Vec<(
-        AutoKey,
-        text_input::State,
-        button::State,
-        button::State,
-        button::State,
-    )>,
+    macro_keys: Vec<AutoKeyState>,
     hotkey: Option<Input>,
     key_receiver: *mut Receiver,
     rng: SmallRng,
@@ -111,7 +113,7 @@ impl Application for UIState {
                 UIMessage::KeyEvent((key, state)) => {
                     if let Some(hotkey) = self.hotkey {
                         if key == hotkey {
-                            let v = self.macro_keys.iter().map(|(key, ..)| *key);
+                            let v = self.macro_keys.iter().map(|AutoKeyState(key, ..)| *key);
                             unsafe { send_key_events(v, state, &mut self.rng) }
                         }
                     }
@@ -163,7 +165,7 @@ impl Application for UIState {
                 UIMessage::Apply => {
                     if let Some(key) = key {
                         if let Ok(delay) = delay.parse() {
-                            self.macro_keys.push((
+                            self.macro_keys.push(AutoKeyState(
                                 AutoKey {
                                     key: *key,
                                     delay: Duration::from_secs_f64(delay),
@@ -188,8 +190,10 @@ impl Application for UIState {
             .align_items(Align::Center)
             .spacing(20);
         let sub_state = &mut self.sub_state;
-        for (idx, (auto_key, input_state, button_state1, button_state2, button_state3)) in
-            self.macro_keys.iter_mut().enumerate()
+        for (
+            idx,
+            AutoKeyState(auto_key, input_state, button_state1, button_state2, button_state3),
+        ) in self.macro_keys.iter_mut().enumerate()
         {
             let row = Row::new().spacing(20);
             let row: Element<Self::Message> = match sub_state {
