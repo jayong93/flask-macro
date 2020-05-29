@@ -5,6 +5,9 @@ use crate::{Input, KeyState};
 use iced::*;
 use iced_native::subscription::Recipe;
 use rand::prelude::*;
+use serde::{Deserialize, Serialize};
+use std::fs::OpenOptions;
+use std::io::{Read, Write};
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
@@ -17,9 +20,13 @@ pub enum UIMessage {
     EditDelay(usize),
     EditHotkey,
     Delete(usize),
+    Load((Vec<AutoKeyState>, Option<Input>)),
+    Save,
+    None,
 }
 
 use std::cell::UnsafeCell;
+#[derive(Debug)]
 enum UISubState {
     Normal,
     AddKey {
@@ -37,14 +44,16 @@ enum UISubState {
     EditHotkey,
 }
 
-struct AutoKeyState(
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoKeyState(
     AutoKey,
-    text_input::State,
-    button::State,
-    button::State,
-    button::State,
+    #[serde(skip, default = "text_input::State::focused")] text_input::State,
+    #[serde(skip)] button::State,
+    #[serde(skip)] button::State,
+    #[serde(skip)] button::State,
 );
 
+#[derive(Debug)]
 pub struct UIState {
     macro_keys: Vec<AutoKeyState>,
     hotkey: Option<Input>,
@@ -54,6 +63,11 @@ pub struct UIState {
     scroll_state: scrollable::State,
     add_key_button_state: button::State,
     edit_hotkey_button_state: button::State,
+    save_button_state: button::State,
+}
+
+lazy_static::lazy_static! {
+    static ref SAVE_FILE_PATH: std::path::PathBuf = dirs::home_dir().unwrap_or_default().join("flask_macro.config");
 }
 
 impl Application for UIState {
@@ -72,8 +86,32 @@ impl Application for UIState {
                 scroll_state: scrollable::State::new(),
                 add_key_button_state: button::State::new(),
                 edit_hotkey_button_state: button::State::new(),
+                save_button_state: button::State::new(),
             },
-            Command::none(),
+            Command::perform(
+                async {
+                    let mut s = String::new();
+                    OpenOptions::new()
+                        .read(true)
+                        .open(SAVE_FILE_PATH.as_path())
+                        .ok()
+                        .map(move |mut f| {
+                            f.read_to_string(&mut s).ok();
+                            s
+                        })
+                },
+                |s| {
+                    if let Some(s) = s {
+                        if let Ok(data) = serde_json::from_str(&s) {
+                            UIMessage::Load(data)
+                        } else {
+                            UIMessage::None
+                        }
+                    } else {
+                        UIMessage::None
+                    }
+                },
+            ),
         )
     }
 
@@ -89,99 +127,121 @@ impl Application for UIState {
     }
 
     fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
-        match &mut self.sub_state {
-            UISubState::Normal => match message {
-                UIMessage::AddKey => {
-                    self.sub_state = UISubState::AddKey {
-                        key: None,
-                        delay: String::new(),
-                        input_state: UnsafeCell::new(text_input::State::new()),
-                    };
-                }
-                UIMessage::EditKey(idx) => {
-                    self.sub_state = UISubState::EditKey { key_id: idx };
-                }
-                UIMessage::EditDelay(idx) => {
-                    self.sub_state = UISubState::EditDelay {
-                        key_id: idx,
-                        input_string: String::new(),
-                    };
-                }
-                UIMessage::EditHotkey => {
-                    self.sub_state = UISubState::EditHotkey;
-                }
-                UIMessage::KeyEvent((key, state)) => {
-                    if let Some(hotkey) = self.hotkey {
-                        if key == hotkey {
-                            let v = self.macro_keys.iter().map(|AutoKeyState(key, ..)| *key);
-                            unsafe { send_key_events(v, state, &mut self.rng) }
+        match message {
+            UIMessage::None => {}
+            UIMessage::Load((mut keys, hotkey)) => {
+                self.macro_keys.append(&mut keys);
+                self.hotkey = hotkey;
+            }
+            UIMessage::Save => {
+                OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(true)
+                    .open(SAVE_FILE_PATH.as_path())
+                    .ok()
+                    .and_then(|f| {
+                        serde_json::to_vec(&(&self.macro_keys, self.hotkey))
+                            .ok()
+                            .map(|data| (f, data))
+                    })
+                    .map(|(mut f, mut data)| f.write_all(&mut data));
+            }
+            _ => match &mut self.sub_state {
+                UISubState::Normal => match message {
+                    UIMessage::AddKey => {
+                        self.sub_state = UISubState::AddKey {
+                            key: None,
+                            delay: String::new(),
+                            input_state: UnsafeCell::new(text_input::State::focused()),
+                        };
+                    }
+                    UIMessage::EditKey(idx) => {
+                        self.sub_state = UISubState::EditKey { key_id: idx };
+                    }
+                    UIMessage::EditDelay(idx) => {
+                        self.sub_state = UISubState::EditDelay {
+                            key_id: idx,
+                            input_string: String::new(),
+                        };
+                    }
+                    UIMessage::EditHotkey => {
+                        self.sub_state = UISubState::EditHotkey;
+                    }
+                    UIMessage::KeyEvent((key, state)) => {
+                        if let Some(hotkey) = self.hotkey {
+                            if key == hotkey {
+                                let v = self.macro_keys.iter().map(|AutoKeyState(key, ..)| *key);
+                                unsafe { send_key_events(v, state, &mut self.rng) }
+                            }
                         }
                     }
-                }
-                UIMessage::Delete(idx) => {
-                    self.macro_keys.remove(idx);
-                }
-                _ => {}
-            },
-            UISubState::EditKey { key_id } => match message {
-                UIMessage::KeyEvent((key, state)) if state == KeyState::Down => {
-                    self.macro_keys[*key_id].0.key = key;
-                    self.sub_state = UISubState::Normal;
-                }
-                _ => {}
-            },
-            UISubState::EditDelay {
-                key_id,
-                input_string,
-            } => match message {
-                UIMessage::InputDelay(delay_string) => {
-                    *input_string = delay_string;
-                }
-                UIMessage::Apply => {
-                    if let Ok(delay) = input_string.parse::<f64>() {
-                        self.macro_keys[*key_id].0.delay = Duration::from_secs_f64(delay);
+                    UIMessage::Delete(idx) => {
+                        self.macro_keys.remove(idx);
                     }
-                    self.sub_state = UISubState::Normal;
-                }
-                _ => {}
-            },
-            UISubState::EditHotkey => {
-                if let UIMessage::KeyEvent((key, state)) = message {
-                    if state == KeyState::Down {
-                        self.hotkey = Some(key);
+                    _ => {}
+                },
+                UISubState::EditKey { key_id } => match message {
+                    UIMessage::KeyEvent((key, state)) if state == KeyState::Down => {
+                        self.macro_keys[*key_id].0.key = key;
                         self.sub_state = UISubState::Normal;
                     }
-                }
-            }
-            UISubState::AddKey { key, delay, .. } => match message {
-                UIMessage::KeyEvent((key_, state)) if state == KeyState::Down => {
-                    if let None = key {
-                        *key = Some(key_);
+                    _ => {}
+                },
+                UISubState::EditDelay {
+                    key_id,
+                    input_string,
+                } => match message {
+                    UIMessage::InputDelay(delay_string) => {
+                        *input_string = delay_string;
                     }
-                }
-                UIMessage::InputDelay(delay_string) => {
-                    *delay = delay_string;
-                }
-                UIMessage::Apply => {
-                    if let Some(key) = key {
-                        if let Ok(delay) = delay.parse() {
-                            self.macro_keys.push(AutoKeyState(
-                                AutoKey {
-                                    key: *key,
-                                    delay: Duration::from_secs_f64(delay),
-                                },
-                                text_input::State::new(),
-                                button::State::new(),
-                                button::State::new(),
-                                button::State::new(),
-                            ));
+                    UIMessage::Apply => {
+                        if let Ok(delay) = input_string.parse::<f64>() {
+                            self.macro_keys[*key_id].0.delay = Duration::from_secs_f64(delay);
+                        }
+                        self.sub_state = UISubState::Normal;
+                    }
+                    _ => {}
+                },
+                UISubState::EditHotkey => {
+                    if let UIMessage::KeyEvent((key, state)) = message {
+                        if state == KeyState::Down {
+                            self.hotkey = Some(key);
+                            self.sub_state = UISubState::Normal;
                         }
                     }
-                    self.sub_state = UISubState::Normal;
                 }
-                _ => {}
+                UISubState::AddKey { key, delay, .. } => match message {
+                    UIMessage::KeyEvent((key_, state)) if state == KeyState::Down => {
+                        if let None = key {
+                            *key = Some(key_);
+                        }
+                    }
+                    UIMessage::InputDelay(delay_string) => {
+                        *delay = delay_string;
+                    }
+                    UIMessage::Apply => {
+                        if let Some(key) = key {
+                            if let Ok(delay) = delay.parse() {
+                                self.macro_keys.push(AutoKeyState(
+                                    AutoKey {
+                                        key: *key,
+                                        delay: Duration::from_secs_f64(delay),
+                                    },
+                                    text_input::State::focused(),
+                                    button::State::new(),
+                                    button::State::new(),
+                                    button::State::new(),
+                                ));
+                            }
+                        }
+                        self.sub_state = UISubState::Normal;
+                    }
+                    _ => {}
+                },
             },
         }
+
         Command::none()
     }
 
@@ -189,7 +249,7 @@ impl Application for UIState {
         let mut scroll = Scrollable::new(&mut self.scroll_state)
             .align_items(Align::Center)
             .spacing(20);
-        let sub_state = &mut self.sub_state;
+        let sub_state = &self.sub_state;
         for (
             idx,
             AutoKeyState(auto_key, input_state, button_state1, button_state2, button_state3),
@@ -293,6 +353,7 @@ impl Application for UIState {
 
         let buttons = Row::new()
             .align_items(Align::Center)
+            .spacing(10)
             .push(
                 Button::new(&mut self.add_key_button_state, Text::new("Add Macro Key"))
                     .width(Length::Shrink)
@@ -304,7 +365,15 @@ impl Application for UIState {
                     &mut self.edit_hotkey_button_state,
                     Text::new("Change Hotkey"),
                 )
+                .width(Length::Shrink)
+                .height(Length::Shrink)
                 .on_press(UIMessage::EditHotkey),
+            )
+            .push(
+                Button::new(&mut self.save_button_state, Text::new("Save Config"))
+                    .width(Length::Shrink)
+                    .height(Length::Shrink)
+                    .on_press(UIMessage::Save),
             );
 
         Container::new(

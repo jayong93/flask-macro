@@ -355,7 +355,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc7ed48e89905e5e146bcc1951cc3facb9e44aea9adf5dc01078cda1bd24b662"
 dependencies = [
  "bitflags",
- "libloading",
+ "libloading 0.5.2",
  "winapi 0.3.8",
 ]
 
@@ -382,6 +382,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "dirs"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13aea89a5c93364a98e9b37b2fa237effbb694d5cfe01c5b70941f7eb087d5e3"
+dependencies = [
+ "cfg-if",
+ "dirs-sys",
+]
+
+[[package]]
+name = "dirs-sys"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "afa0b23de8fd801745c471deffa6e12d248f962c9fd4b4c33787b055599bde7b"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "redox_users",
+ "winapi 0.3.8",
+]
+
+[[package]]
 name = "dispatch"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -389,11 +411,11 @@ checksum = "bd0c93bb4b0c6d9b77f4435b0ae98c24d17f1c45b2ff844c6151a07256ca923b"
 
 [[package]]
 name = "dlib"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77e51249a9d823a4cb79e3eca6dcd756153e8ed0157b6c04775d04bf1b13b76a"
+checksum = "b11f15d1e3268f140f68d390637d5e76d849782d971ae7063e0da69fe9709a76"
 dependencies = [
- "libloading",
+ "libloading 0.6.2",
 ]
 
 [[package]]
@@ -473,11 +495,14 @@ dependencies = [
 name = "flask-macro"
 version = "0.1.0"
 dependencies = [
+ "dirs 2.0.2",
  "iced",
  "iced_native",
  "lazy_static",
  "rand",
  "rust_rawinput",
+ "serde",
+ "serde_json",
  "winapi 0.3.8",
 ]
 
@@ -497,7 +522,7 @@ dependencies = [
  "core-foundation 0.6.4",
  "core-graphics 0.17.3",
  "core-text",
- "dirs",
+ "dirs 1.0.5",
  "dwrote",
  "euclid 0.20.13",
  "float-ord",
@@ -695,7 +720,7 @@ dependencies = [
  "bitflags",
  "gfx-auxil",
  "gfx-hal",
- "libloading",
+ "libloading 0.5.2",
  "log",
  "parking_lot 0.10.2",
  "range-alloc",
@@ -877,7 +902,7 @@ checksum = "dd2d8494c0b2a1e1977421b4c094fdcd32d79c27fb9b3bbf1021c62de9eb6986"
 dependencies = [
  "futures 0.3.5",
  "log",
- "wasm-bindgen-futures 0.4.12",
+ "wasm-bindgen-futures 0.4.13",
 ]
 
 [[package]]
@@ -914,7 +939,7 @@ dependencies = [
  "iced_style",
  "url",
  "wasm-bindgen",
- "wasm-bindgen-futures 0.4.12",
+ "wasm-bindgen-futures 0.4.13",
  "web-sys",
 ]
 
@@ -976,6 +1001,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "itoa"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8b7a7c0c47db5545ed3fef7468ee7bb5b74691498139e4b3f6a20685dc6dd8e"
+
+[[package]]
 name = "jni-sys"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -983,9 +1014,9 @@ checksum = "8eaf4bc02d17cbdd7ff4c7438cafcdf7fb9a4613313ad11b4f8fefe7d3fa0130"
 
 [[package]]
 name = "js-sys"
-version = "0.3.39"
+version = "0.3.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa5a448de267e7358beaf4a5d849518fe9a0c13fce7afd44b06e68550e5562a7"
+checksum = "ce10c23ad2ea25ceca0093bd3192229da4c5b3c0f2de499c1ecac0d98d452177"
 dependencies = [
  "wasm-bindgen",
 ]
@@ -1025,6 +1056,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2b111a074963af1d37a139918ac6d49ad1d0d5e47f72fd55388619691a7d753"
 dependencies = [
  "cc",
+ "winapi 0.3.8",
+]
+
+[[package]]
+name = "libloading"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2cadb8e769f070c45df05c78c7520eb4cd17061d4ab262e43cfc68b4d00ac71c"
+dependencies = [
  "winapi 0.3.8",
 ]
 
@@ -1626,10 +1666,11 @@ dependencies = [
 
 [[package]]
 name = "rust_rawinput"
-version = "0.4.2"
-source = "git+https://github.com/jayong93/Rust-Rawinput#05410db287bf734ecd4bdac184434cddcf00839b"
+version = "0.4.3"
+source = "git+https://github.com/jayong93/Rust-Rawinput#0c77cb32aec19044b7dd02deaaf5ab519eed8e1a"
 dependencies = [
  "futures 0.3.5",
+ "serde",
  "winapi 0.3.8",
 ]
 
@@ -1674,6 +1715,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ryu"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed3d612bc64430efeb3f7ee6ef26d590dce0c43249217bddc62112540c7941e1"
+
+[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1708,6 +1755,31 @@ name = "serde"
 version = "1.0.110"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "99e7b308464d16b56eba9964e4972a3eee817760ab60d88c3f86e1fecb08204c"
+dependencies = [
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_derive"
+version = "1.0.110"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "818fbf6bfa9a42d3bfcaca148547aa00c7b915bec71d1757aa2d44ca68771984"
+dependencies = [
+ "proc-macro2 1.0.17",
+ "quote 1.0.6",
+ "syn 1.0.27",
+]
+
+[[package]]
+name = "serde_json"
+version = "1.0.53"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "993948e75b189211a9b31a7528f950c6adc21f9720b6438ff80a7fa2f864cea2"
+dependencies = [
+ "itoa",
+ "ryu",
+ "serde",
+]
 
 [[package]]
 name = "servo-fontconfig"
@@ -1962,9 +2034,9 @@ checksum = "cccddf32554fecc6acb585f82a32a72e28b48f8c4c1883ddfeeeaa96f7d8e519"
 
 [[package]]
 name = "wasm-bindgen"
-version = "0.2.62"
+version = "0.2.63"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3c7d40d09cdbf0f4895ae58cf57d92e1e57a9dd8ed2e8390514b54a47cc5551"
+checksum = "4c2dc4aa152834bc334f506c1a06b866416a8b6697d5c9f75b9a689c8486def0"
 dependencies = [
  "cfg-if",
  "wasm-bindgen-macro",
@@ -1972,9 +2044,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-backend"
-version = "0.2.62"
+version = "0.2.63"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3972e137ebf830900db522d6c8fd74d1900dcfc733462e9a12e942b00b4ac94"
+checksum = "ded84f06e0ed21499f6184df0e0cb3494727b0c5da89534e0fcc55c51d812101"
 dependencies = [
  "bumpalo 3.3.0",
  "lazy_static",
@@ -2000,9 +2072,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-futures"
-version = "0.4.12"
+version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a369c5e1dfb7569e14d62af4da642a3cbc2f9a3652fe586e26ac22222aa4b04"
+checksum = "64487204d863f109eb77e8462189d111f27cb5712cc9fdb3461297a76963a2f6"
 dependencies = [
  "cfg-if",
  "js-sys",
@@ -2012,9 +2084,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro"
-version = "0.2.62"
+version = "0.2.63"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cd85aa2c579e8892442954685f0d801f9129de24fa2136b2c6a539c76b65776"
+checksum = "838e423688dac18d73e31edce74ddfac468e37b1506ad163ffaf0a46f703ffe3"
 dependencies = [
  "quote 1.0.6",
  "wasm-bindgen-macro-support",
@@ -2022,9 +2094,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro-support"
-version = "0.2.62"
+version = "0.2.63"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8eb197bd3a47553334907ffd2f16507b4f4f01bbec3ac921a7719e0decdfe72a"
+checksum = "3156052d8ec77142051a533cdd686cba889537b213f948cd1d20869926e68e92"
 dependencies = [
  "proc-macro2 1.0.17",
  "quote 1.0.6",
@@ -2035,9 +2107,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-shared"
-version = "0.2.62"
+version = "0.2.63"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a91c2916119c17a8e316507afaaa2dd94b47646048014bbdf6bef098c1bb58ad"
+checksum = "c9ba19973a58daf4db6f352eda73dc0e289493cd29fb2632eb172085b6521acd"
 
 [[package]]
 name = "wayland-client"
@@ -2101,9 +2173,9 @@ dependencies = [
 
 [[package]]
 name = "web-sys"
-version = "0.3.39"
+version = "0.3.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8bc359e5dd3b46cb9687a051d50a2fdd228e4ba7cf6fcf861a5365c3d671a642"
+checksum = "7b72fe77fd39e4bd3eaa4412fd299a0be6b3dfe9d2597e2f1c20beb968f41d17"
 dependencies = [
  "js-sys",
  "wasm-bindgen",

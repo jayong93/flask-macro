@@ -1,10 +1,11 @@
 use rust_rawinput::{Input, KeyState, Receiver};
 use std::time::Duration;
 use winapi::um::winuser::{INPUT_u, SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP};
+use serde::{Serialize, Deserialize};
 
 mod ui;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 struct AutoKey {
     key: Input,
     delay: Duration,
@@ -91,25 +92,5 @@ unsafe fn send_key_events(
 
 use iced::Application;
 fn main() {
-    // let v: Vec<_>;
-
-    // v = (0..3)
-    //     .map(|i| AutoKey {
-    //         key: Input::KeyBoard(i + '3' as i32),
-    //         delay: Duration::from_millis((20 * (i + 1)) as _),
-    //     })
-    //     .collect();
-
-    // let receiver = Receiver::new();
-    // let mut rng = thread_rng();
-
-    // while let Ok(key) = receiver.get() {
-    //     match key {
-    //         (Input::KeyBoard(key_code), state) if key_code == '2' as _ => unsafe {
-    //             send_key_events(&v, state, &mut rng);
-    //         },
-    //         _ => {}
-    //     }
-    // }
     ui::UIState::run(iced::Settings::default());
 }
