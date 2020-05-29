@@ -75,11 +75,15 @@ unsafe fn send_key_event(key: &AutoKey, state: KeyState) {
 }
 
 use rand::prelude::*;
-unsafe fn send_key_events(keys: &[AutoKey], state: KeyState, rng: &mut impl Rng) {
+unsafe fn send_key_events(
+    keys: impl IntoIterator<Item = AutoKey>,
+    state: KeyState,
+    rng: &mut impl Rng,
+) {
     for key in keys {
         add_timer_event(
             (key.delay.as_millis() + rng.gen_range(0, 20)) as _,
-            *key,
+            key,
             state,
         );
     }
