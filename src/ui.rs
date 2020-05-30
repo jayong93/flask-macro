@@ -23,6 +23,7 @@ pub enum UIMessage {
     Load((Vec<AutoKeyState>, Option<Input>)),
     Save,
     None,
+    ToggleOnOff(bool),
 }
 
 use std::cell::UnsafeCell;
@@ -64,6 +65,7 @@ pub struct UIState {
     add_key_button_state: button::State,
     edit_hotkey_button_state: button::State,
     save_button_state: button::State,
+    on_off_state: bool,
 }
 
 lazy_static::lazy_static! {
@@ -87,6 +89,7 @@ impl Application for UIState {
                 add_key_button_state: button::State::new(),
                 edit_hotkey_button_state: button::State::new(),
                 save_button_state: button::State::new(),
+                on_off_state: false,
             },
             Command::perform(
                 async {
@@ -170,7 +173,7 @@ impl Application for UIState {
                     }
                     UIMessage::KeyEvent((key, state)) => {
                         if let Some(hotkey) = self.hotkey {
-                            if key == hotkey {
+                            if self.on_off_state && key == hotkey {
                                 let v = self.macro_keys.iter().map(|AutoKeyState(key, ..)| *key);
                                 unsafe { send_key_events(v, state, &mut self.rng) }
                             }
@@ -178,6 +181,9 @@ impl Application for UIState {
                     }
                     UIMessage::Delete(idx) => {
                         self.macro_keys.remove(idx);
+                    }
+                    UIMessage::ToggleOnOff(val) => {
+                        self.on_off_state = val;
                     }
                     _ => {}
                 },
@@ -401,6 +407,7 @@ impl Application for UIState {
                             .map_or_else(|| "None".to_string(), |key| key.to_string())
                     )
                 }))
+                .push(Checkbox::new(self.on_off_state, "Apply Macro", UIMessage::ToggleOnOff))
                 .push(buttons),
         )
         .width(Length::Fill)
