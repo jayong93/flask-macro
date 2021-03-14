@@ -288,12 +288,6 @@ impl<W: Widget<UIState>> widget::Controller<UIState, W> for HotKeySelector {
                         unsafe {
                             send_key_events(
                                 data.macro_keys.iter().cloned(),
-                                KeyState::Down,
-                                &mut data.rng,
-                            );
-                            send_key_events(
-                                data.macro_keys.iter().cloned(),
-                                KeyState::Up,
                                 &mut data.rng,
                             );
                         }
