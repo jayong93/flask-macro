@@ -1,20 +1,25 @@
 #![windows_subsystem = "windows"]
+use druid::{Data, PlatformError};
 use rust_rawinput::{Input, KeyState, Receiver};
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use winapi::um::winuser::{INPUT_u, SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP};
-use serde::{Serialize, Deserialize};
 
 mod ui;
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Data)]
 struct AutoKey {
-    key: Input,
+    key: KeyInput,
+    #[data(same_fn = "PartialEq::eq")]
     delay: Duration,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Data)]
+struct KeyInput(#[data(same_fn = "PartialEq::eq")] Input);
+
 impl From<&AutoKey> for INPUT {
     fn from(k: &AutoKey) -> Self {
-        let key = match k.key {
+        let key = match k.key.0 {
             Input::KeyBoard(i) | Input::Mouse(i) => i,
         };
         let mut u = INPUT_u::default();
@@ -91,7 +96,6 @@ unsafe fn send_key_events(
     }
 }
 
-use iced::Application;
-fn main() {
-    ui::UIState::run(iced::Settings::default());
+fn main() -> Result<(), PlatformError> {
+    ui::show_ui()
 }

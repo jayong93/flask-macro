@@ -1,465 +1,333 @@
-use crate::send_key_events;
 use crate::AutoKey;
 use crate::Receiver;
+use crate::{send_key_events, KeyInput};
 use crate::{Input, KeyState};
-use iced::*;
-use iced_native::subscription::Recipe;
+use druid::{
+    self, im, text::format::ParseFormatter, widget, AppDelegate, AppLauncher, Color, Command, Data,
+    DelegateCtx, Env, Event, EventCtx, Handled, Lens, PlatformError, Target, Widget, WidgetExt,
+    WindowConfig, WindowDesc, WindowLevel,
+};
 use rand::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde_json;
 use std::fs::OpenOptions;
-use std::io::{Read, Write};
-use std::time::Duration;
 
-#[derive(Debug, Clone)]
-pub enum UIMessage {
-    KeyEvent((Input, KeyState)),
-    InputDelay(String),
-    Apply,
-    AddKey,
-    EditKey(usize),
-    EditDelay(usize),
-    EditHotkey,
-    Delete(usize),
-    Load((Vec<AutoKeyState>, Option<Input>)),
-    Save,
-    None,
-    ToggleOnOff(bool),
-}
+const KEY_INPUT: druid::Selector<Input> = druid::Selector::new("event.send-key-input");
+const DEL_KEY: druid::Selector<AutoKey> = druid::Selector::new("event.del-key");
 
-use std::cell::UnsafeCell;
-#[derive(Debug)]
-enum UISubState {
-    Normal,
-    AddKey {
-        key: Option<Input>,
-        delay: String,
-        input_state: UnsafeCell<text_input::State>,
-    },
-    EditKey {
-        key_id: usize,
-    },
-    EditDelay {
-        key_id: usize,
-        input_string: String,
-    },
-    EditHotkey,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AutoKeyState(
-    AutoKey,
-    #[serde(skip, default = "text_input::State::focused")] text_input::State,
-    #[serde(skip)] button::State,
-    #[serde(skip)] button::State,
-    #[serde(skip)] button::State,
-);
-
-#[derive(Debug)]
-pub struct UIState {
-    macro_keys: Vec<AutoKeyState>,
-    hotkey: Option<Input>,
-    key_receiver: *mut Receiver,
+#[derive(Debug, Clone, Data, Lens)]
+struct UIState {
+    macro_keys: im::Vector<AutoKey>,
+    hotkey: Option<KeyInput>,
+    ready_to_press_hotkey: bool,
+    sub_window: SubWinState,
+    #[data(ignore)]
     rng: SmallRng,
-    sub_state: UISubState,
-    scroll_state: scrollable::State,
-    add_key_button_state: button::State,
-    edit_hotkey_button_state: button::State,
-    save_button_state: button::State,
     on_off_state: bool,
+}
+
+impl UIState {
+    fn new(keys: Vec<AutoKey>, hotkey: Option<KeyInput>) -> Self {
+        Self {
+            macro_keys: keys.into(),
+            hotkey,
+            ready_to_press_hotkey: Default::default(),
+            sub_window: Default::default(),
+            rng: SmallRng::from_entropy(),
+            on_off_state: Default::default(),
+        }
+    }
+    fn to_save_data(&self) -> (Vec<&AutoKey>, &Option<KeyInput>) {
+        (self.macro_keys.iter().collect(), &self.hotkey)
+    }
+}
+
+#[derive(Debug, Clone, Data, Lens, Default)]
+struct SubWinState {
+    key: Option<KeyInput>,
+    delay: f64,
+    ready_to_press: bool,
 }
 
 lazy_static::lazy_static! {
     static ref SAVE_FILE_PATH: std::path::PathBuf = dirs::home_dir().unwrap_or_default().join("flask_macro.config");
 }
 
-impl Application for UIState {
-    type Executor = iced::executor::Default;
-    type Message = UIMessage;
-    type Flags = ();
+fn key_event_thread_fn(event_sink: druid::ExtEventSink) {
+    let mut receiver = Receiver::new();
 
-    fn new(_flags: Self::Flags) -> (Self, Command<Self::Message>) {
-        (
-            Self {
-                macro_keys: vec![],
-                hotkey: None,
-                key_receiver: Box::leak(Box::new(Receiver::new())),
-                rng: SmallRng::from_entropy(),
-                sub_state: UISubState::Normal,
-                scroll_state: scrollable::State::new(),
-                add_key_button_state: button::State::new(),
-                edit_hotkey_button_state: button::State::new(),
-                save_button_state: button::State::new(),
-                on_off_state: false,
-            },
-            Command::perform(
-                async {
-                    let mut s = String::new();
-                    OpenOptions::new()
-                        .read(true)
-                        .open(SAVE_FILE_PATH.as_path())
-                        .ok()
-                        .map(move |mut f| {
-                            f.read_to_string(&mut s).ok();
-                            s
+    loop {
+        match futures::executor::block_on(receiver.get()) {
+            Some((key, state)) if state == KeyState::Down => {
+                if event_sink
+                    .submit_command(KEY_INPUT, key, druid::Target::Auto)
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            Some(_) => {}
+            _ => break,
+        }
+    }
+}
+
+pub fn show_ui() -> Result<(), PlatformError> {
+    let (keys, hotkey): (Vec<AutoKey>, Option<KeyInput>) = OpenOptions::new()
+        .read(true)
+        .open(&*SAVE_FILE_PATH)
+        .ok()
+        .and_then(|file| serde_json::from_reader(file).ok())
+        .unwrap_or_default();
+
+    let launcher = AppLauncher::with_window(
+        WindowDesc::new(build_ui())
+            .title("Flask Macro")
+            .window_size(druid::Size::new(400., 400.)),
+    );
+    let event_sink = launcher.get_external_handle();
+    std::thread::spawn(move || key_event_thread_fn(event_sink));
+
+    launcher.delegate(DelKeyDelegater).launch(UIState::new(keys, hotkey))
+}
+
+fn build_ui() -> impl Widget<UIState> {
+    widget::Flex::column()
+        .with_default_spacer()
+        .with_child(
+            widget::Scroll::new(widget::Either::new(
+                |data: &UIState, _| data.macro_keys.is_empty(),
+                widget::Label::new("None"),
+                widget::List::new(build_hotkey)
+                    .with_spacing(20.)
+                    .lens(UIState::macro_keys),
+            ))
+            .border(Color::WHITE, 2.),
+        )
+        .with_flex_spacer(10.)
+        .with_child(
+            widget::Flex::row()
+                .with_child(
+                    widget::Label::dynamic(|data: &UIState, _| {
+                        data.hotkey.map(|v| format!("{}", v.0)).unwrap_or_else(|| {
+                            if data.ready_to_press_hotkey {
+                                "Press Hotkey".to_owned()
+                            } else {
+                                "None".to_owned()
+                            }
                         })
-                },
-                |s| {
-                    if let Some(s) = s {
-                        if let Ok(data) = serde_json::from_str(&s) {
-                            UIMessage::Load(data)
-                        } else {
-                            UIMessage::None
-                        }
-                    } else {
-                        UIMessage::None
-                    }
-                },
-            ),
-        )
-    }
-
-    fn title(&self) -> String {
-        "POE Flask Macro".to_string()
-    }
-
-    fn subscription(&self) -> Subscription<Self::Message> {
-        iced_native::subscription::Subscription::from_recipe(KeyReceiver(
-            self.key_receiver as usize,
-        ))
-        .map(UIMessage::KeyEvent)
-    }
-
-    fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
-        match message {
-            UIMessage::None => {}
-            UIMessage::Load((mut keys, hotkey)) => {
-                self.macro_keys.append(&mut keys);
-                self.hotkey = hotkey;
-            }
-            UIMessage::Save => {
-                OpenOptions::new()
-                    .create(true)
-                    .write(true)
-                    .truncate(true)
-                    .open(SAVE_FILE_PATH.as_path())
-                    .ok()
-                    .and_then(|f| {
-                        serde_json::to_vec(&(&self.macro_keys, self.hotkey))
-                            .ok()
-                            .map(|data| (f, data))
                     })
-                    .map(|(mut f, mut data)| f.write_all(&mut data));
-            }
-            _ => match &mut self.sub_state {
-                UISubState::Normal => match message {
-                    UIMessage::AddKey => {
-                        self.sub_state = UISubState::AddKey {
-                            key: None,
-                            delay: String::new(),
-                            input_state: UnsafeCell::new(text_input::State::focused()),
-                        };
-                    }
-                    UIMessage::EditKey(idx) => {
-                        self.sub_state = UISubState::EditKey { key_id: idx };
-                    }
-                    UIMessage::EditDelay(idx) => {
-                        self.sub_state = UISubState::EditDelay {
-                            key_id: idx,
-                            input_string: String::new(),
-                        };
-                    }
-                    UIMessage::EditHotkey => {
-                        self.sub_state = UISubState::EditHotkey;
-                    }
-                    UIMessage::KeyEvent((key, state)) => {
-                        if let Some(hotkey) = self.hotkey {
-                            if self.on_off_state && key == hotkey {
-                                let v = self.macro_keys.iter().map(|AutoKeyState(key, ..)| *key);
-                                unsafe { send_key_events(v, state, &mut self.rng) }
-                            }
-                        }
-                    }
-                    UIMessage::Delete(idx) => {
-                        self.macro_keys.remove(idx);
-                    }
-                    UIMessage::ToggleOnOff(val) => {
-                        self.on_off_state = val;
-                    }
-                    _ => {}
-                },
-                UISubState::EditKey { key_id } => match message {
-                    UIMessage::KeyEvent((key, state)) if state == KeyState::Down => {
-                        self.macro_keys[*key_id].0.key = key;
-                        self.sub_state = UISubState::Normal;
-                    }
-                    _ => {}
-                },
-                UISubState::EditDelay {
-                    key_id,
-                    input_string,
-                } => match message {
-                    UIMessage::InputDelay(delay_string) => {
-                        *input_string = delay_string;
-                    }
-                    UIMessage::Apply => {
-                        if let Ok(delay) = input_string.parse::<f64>() {
-                            self.macro_keys[*key_id].0.delay = Duration::from_secs_f64(delay);
-                        }
-                        self.sub_state = UISubState::Normal;
-                    }
-                    _ => {}
-                },
-                UISubState::EditHotkey => {
-                    if let UIMessage::KeyEvent((key, state)) = message {
-                        if state == KeyState::Down {
-                            self.hotkey = Some(key);
-                            self.sub_state = UISubState::Normal;
-                        }
-                    }
-                }
-                UISubState::AddKey { key, delay, .. } => match message {
-                    UIMessage::KeyEvent((key_, state)) if state == KeyState::Down => {
-                        if let None = key {
-                            *key = Some(key_);
-                        }
-                    }
-                    UIMessage::InputDelay(delay_string) => {
-                        *delay = delay_string;
-                    }
-                    UIMessage::Apply => {
-                        if let Some(key) = key {
-                            if let Ok(delay) = delay.parse() {
-                                self.macro_keys.push(AutoKeyState(
-                                    AutoKey {
-                                        key: *key,
-                                        delay: Duration::from_secs_f64(delay),
-                                    },
-                                    text_input::State::focused(),
-                                    button::State::new(),
-                                    button::State::new(),
-                                    button::State::new(),
-                                ));
-                            }
-                        }
-                        self.sub_state = UISubState::Normal;
-                    }
-                    _ => {}
-                },
-            },
-        }
-
-        Command::none()
-    }
-
-    fn view(&mut self) -> Element<'_, Self::Message> {
-        let mut scroll = Scrollable::new(&mut self.scroll_state)
-            .align_items(Align::Center)
-            .spacing(20);
-        let sub_state = &self.sub_state;
-        for (
-            idx,
-            AutoKeyState(auto_key, input_state, button_state1, button_state2, button_state3),
-        ) in self.macro_keys.iter_mut().enumerate()
-        {
-            let row = Row::new().spacing(20);
-            let row: Element<Self::Message> = match sub_state {
-                UISubState::EditDelay {
-                    key_id,
-                    input_string,
-                } if *key_id == idx => row
-                    .push(
-                        Text::new(format!("Key: {}", auto_key.key.to_string()))
-                            .width(Length::Fill)
-                            .vertical_alignment(VerticalAlignment::Center)
-                            .horizontal_alignment(HorizontalAlignment::Center),
-                    )
-                    .push(
-                        TextInput::new(input_state, "Delay", &input_string, UIMessage::InputDelay)
-                            .width(Length::Fill)
-                            .on_submit(UIMessage::Apply),
-                    ),
-                UISubState::EditKey { key_id } if *key_id == idx => row
-                    .push(
-                        Text::new("Press new key")
-                            .vertical_alignment(VerticalAlignment::Center)
-                            .horizontal_alignment(HorizontalAlignment::Center),
-                    )
-                    .push(
-                        Text::new(format!(
-                            "Delay: {} s",
-                            auto_key.delay.as_secs_f64().to_string()
-                        ))
-                        .vertical_alignment(VerticalAlignment::Center)
-                        .horizontal_alignment(HorizontalAlignment::Center),
-                    ),
-                _ => row
-                    .push(
-                        Text::new(format!("Key: {}", auto_key.key.to_string()))
-                            .width(Length::Fill)
-                            .vertical_alignment(VerticalAlignment::Center)
-                            .horizontal_alignment(HorizontalAlignment::Center),
-                    )
-                    .push(
-                        Button::new(button_state1, Text::new("Edit"))
-                            .width(Length::Shrink)
-                            .on_press(UIMessage::EditKey(idx)),
-                    )
-                    .push(
-                        Text::new(format!(
-                            "Delay: {} s",
-                            auto_key.delay.as_secs_f64().to_string()
-                        ))
-                        .width(Length::Fill)
-                        .vertical_alignment(VerticalAlignment::Center)
-                        .horizontal_alignment(HorizontalAlignment::Center),
-                    )
-                    .push(
-                        Button::new(button_state2, Text::new("Edit"))
-                            .width(Length::Shrink)
-                            .on_press(UIMessage::EditDelay(idx)),
-                    )
-                    .push(Space::with_width(Length::Units(30)))
-                    .push(
-                        Button::new(button_state3, Text::new("Delete"))
-                            .width(Length::Shrink)
-                            .on_press(UIMessage::Delete(idx)),
-                    ),
-            }
-            .into();
-            scroll = scroll.push(Container::new(row).center_y().padding(5).style(BorderedContainer));
-        }
-
-        if let UISubState::AddKey {
-            key,
-            delay,
-            input_state,
-        } = &self.sub_state
-        {
-            let mut row = Row::new().spacing(20);
-            match (key, delay) {
-                (None, _) => {
-                    row = row.push(Text::new("Press Macro Key"));
-                }
-                (Some(input), ref delay) => {
-                    row = row
-                        .push(
-                            Text::new(format!("Key: {}", input.to_string()))
-                                .width(Length::Fill)
-                                .horizontal_alignment(HorizontalAlignment::Center),
-                        )
-                        .push(
-                            TextInput::new(
-                                unsafe { &mut *input_state.get() },
-                                "Delay",
-                                delay,
-                                UIMessage::InputDelay,
-                            )
-                            .width(Length::Fill)
-                            .on_submit(UIMessage::Apply),
-                        );
-                }
-            }
-            scroll = scroll.push(row);
-        }
-
-        let buttons = Row::new()
-            .align_items(Align::Center)
-            .spacing(10)
-            .push(
-                Button::new(&mut self.add_key_button_state, Text::new("Add Macro Key"))
-                    .width(Length::Shrink)
-                    .height(Length::Shrink)
-                    .on_press(UIMessage::AddKey),
-            )
-            .push(
-                Button::new(
-                    &mut self.edit_hotkey_button_state,
-                    Text::new("Change Hotkey"),
+                    .controller(HotKeySelector),
                 )
-                .width(Length::Shrink)
-                .height(Length::Shrink)
-                .on_press(UIMessage::EditHotkey),
-            )
-            .push(
-                Button::new(&mut self.save_button_state, Text::new("Save Config"))
-                    .width(Length::Shrink)
-                    .height(Length::Shrink)
-                    .on_press(UIMessage::Save),
-            );
-
-        Container::new(
-            Column::new()
-                .align_items(Align::Center)
-                .spacing(50)
-                .push(
-                    Container::new(scroll.width(Length::Fill).height(Length::Fill))
-                        .padding(5)
-                        .width(Length::Fill)
-                        .height(Length::Fill)
-                        .style(BorderedContainer),
-                )
-                .push(Text::new(if let UISubState::EditHotkey = self.sub_state {
-                    "Press Hotkey".to_string()
-                } else {
-                    format!(
-                        "Hotkey : {}",
-                        self.hotkey
-                            .map_or_else(|| "None".to_string(), |key| key.to_string())
-                    )
-                }))
-                .push(Checkbox::new(self.on_off_state, "Apply Macro", UIMessage::ToggleOnOff))
-                .push(buttons),
+                .with_default_spacer()
+                .with_child(
+                    widget::Button::new("Change Hotkey")
+                        .on_click(|_, data: &mut bool, _| *data = true)
+                        .lens(UIState::ready_to_press_hotkey),
+                ),
         )
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .center_x()
-        .center_y()
-        .into()
-    }
+        .with_default_spacer()
+        .with_child(widget::Switch::new().lens(UIState::on_off_state))
+        .with_flex_spacer(1.)
+        .with_child(
+            widget::Flex::row()
+                .with_child(widget::Button::new("Add Key").on_click(
+                    |ctx, data: &mut UIState, env| {
+                        let window_config = WindowConfig::default()
+                            .window_size_policy(druid::WindowSizePolicy::User)
+                            .resizable(true)
+                            .window_size(druid::Size::new(400., 400.))
+                            .set_level(WindowLevel::Modal);
+                        ctx.new_sub_window(
+                            window_config,
+                            build_subwindow(),
+                            data.clone(),
+                            env.clone(),
+                        );
+                    },
+                ))
+                .with_default_spacer()
+                .with_child(widget::Button::new("Save Config").on_click(
+                    |_, data: &mut UIState, _| {
+                        if let Ok(file) = OpenOptions::new()
+                            .write(true)
+                            .truncate(true)
+                            .create(true)
+                            .open(&*SAVE_FILE_PATH)
+                        {
+                            serde_json::to_writer(file, &data.to_save_data()).ok();
+                        }
+                    },
+                )),
+        )
+        .with_default_spacer()
 }
 
-struct BorderedContainer;
+fn build_hotkey() -> impl Widget<AutoKey> {
+    widget::Flex::row()
+        .with_child(widget::Label::dynamic(|data: &AutoKey, _| {
+            format!("Key: {}", data.key.0)
+        }))
+        .with_default_spacer()
+        .with_child(widget::Label::dynamic(|data: &AutoKey, _| {
+            format!("Delay: {:.2} s", data.delay.as_secs_f64())
+        }))
+        .with_default_spacer()
+        .with_child(
+            widget::Button::new("Del").on_click(|ctx, data: &mut AutoKey, _| {
+                ctx.submit_command(druid::Command::new(
+                    DEL_KEY,
+                    data.clone(),
+                    druid::Target::Auto,
+                ));
+            }),
+        )
+}
 
-impl widget::container::StyleSheet for BorderedContainer {
-    fn style(&self) -> widget::container::Style {
-        widget::container::Style {
-            border_width: 2,
-            border_color: Color::from_rgb(0.5, 0.5, 0.5),
-            border_radius: 10,
-            ..Default::default()
+fn build_subwindow() -> impl Widget<UIState> {
+    widget::Flex::column()
+        .with_child(
+            widget::Flex::row()
+                .with_child(
+                    widget::Label::dynamic(|data: &SubWinState, _| {
+                        data.key.map(|key| format!("{}", key.0)).unwrap_or_else(|| {
+                            if data.ready_to_press {
+                                "Press Any Key".to_owned()
+                            } else {
+                                "None".to_owned()
+                            }
+                        })
+                    })
+                    .controller(KeySelector)
+                    .lens(UIState::sub_window),
+                )
+                .with_default_spacer()
+                .with_child(
+                    widget::Button::new("Select Key")
+                        .on_click(|_ctx, data: &mut SubWinState, _| {
+                            data.key = None;
+                            data.ready_to_press = true;
+                        })
+                        .lens(UIState::sub_window),
+                ),
+        )
+        .with_default_spacer()
+        .with_child(
+            widget::ValueTextBox::new(
+                widget::TextBox::new(),
+                ParseFormatter::<f64>::with_format_fn(|v| format!("{:.2}", v)),
+            )
+            .update_data_while_editing(true)
+            .lens(druid::lens::Then::new(
+                UIState::sub_window,
+                SubWinState::delay,
+            )),
+        )
+        .with_default_spacer()
+        .with_child(
+            widget::Flex::row()
+                .with_child(
+                    widget::Button::new("Add").on_click(|ctx, data: &mut UIState, _| {
+                        if let Some(key) = data.sub_window.key {
+                            let delay = std::time::Duration::from_secs_f64(data.sub_window.delay);
+                            data.macro_keys.push_back(AutoKey { key, delay });
+                            data.sub_window = Default::default();
+                            ctx.window().close();
+                        }
+                    }),
+                )
+                .with_default_spacer()
+                .with_child(widget::Button::new("Cancel").on_click(
+                    |ctx, data: &mut UIState, _| {
+                        data.sub_window = Default::default();
+                        ctx.window().close()
+                    },
+                )),
+        )
+}
+
+struct KeySelector;
+
+impl<W: Widget<SubWinState>> widget::Controller<SubWinState, W> for KeySelector {
+    fn event(
+        &mut self,
+        _child: &mut W,
+        _ctx: &mut EventCtx,
+        event: &Event,
+        data: &mut SubWinState,
+        _env: &Env,
+    ) {
+        match event {
+            Event::Command(cmd) if cmd.is(KEY_INPUT) && data.ready_to_press => {
+                data.ready_to_press = false;
+                data.key = Some(KeyInput(*cmd.get_unchecked::<Input>(KEY_INPUT)));
+            }
+            _ => {}
         }
     }
 }
 
-use iced::futures::stream::{self, *};
-use iced::futures::{Future, FutureExt};
+struct HotKeySelector;
 
-#[derive(Debug, Clone)]
-struct KeyReceiver(usize);
-
-impl KeyReceiver {
-    unsafe fn get<'a>(&self) -> impl Future<Output = Option<(Input, KeyState)>> + 'a {
-        let receiver: &'a mut _;
-        {
-            receiver = &mut *(self.0 as *mut Receiver);
+impl<W: Widget<UIState>> widget::Controller<UIState, W> for HotKeySelector {
+    fn event(
+        &mut self,
+        _child: &mut W,
+        _ctx: &mut EventCtx,
+        event: &Event,
+        data: &mut UIState,
+        _env: &Env,
+    ) {
+        match event {
+            Event::Command(cmd) if cmd.is(KEY_INPUT) => {
+                let input = *cmd.get_unchecked::<Input>(KEY_INPUT);
+                if data.ready_to_press_hotkey {
+                    data.ready_to_press_hotkey = false;
+                    data.hotkey = Some(KeyInput(input));
+                } else if let Some(hotkey) = data.hotkey {
+                    if data.on_off_state && hotkey.0 == input {
+                        unsafe {
+                            send_key_events(
+                                data.macro_keys.iter().cloned(),
+                                KeyState::Down,
+                                &mut data.rng,
+                            );
+                            send_key_events(
+                                data.macro_keys.iter().cloned(),
+                                KeyState::Up,
+                                &mut data.rng,
+                            );
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
-        receiver.get()
     }
 }
 
-impl<H, I> Recipe<H, I> for KeyReceiver
-where
-    H: std::hash::Hasher,
-{
-    type Output = (Input, KeyState);
+struct DelKeyDelegater;
 
-    fn hash(&self, state: &mut H) {
-        use std::hash::Hash;
-
-        std::any::TypeId::of::<Self>().hash(state);
-    }
-
-    fn stream(self: Box<Self>, _input: BoxStream<'static, I>) -> BoxStream<'static, Self::Output> {
-        unsafe { stream::unfold((), move |_| self.get().map(|v| v.map(|v| (v, ())))).boxed() }
+impl AppDelegate<UIState> for DelKeyDelegater {
+    fn command(
+        &mut self,
+        _ctx: &mut DelegateCtx,
+        _target: Target,
+        cmd: &Command,
+        data: &mut UIState,
+        _env: &Env,
+    ) -> Handled {
+        if let Some(target_key) = cmd.get(DEL_KEY) {
+            let mut idx = 0;
+            for (i, key) in data.macro_keys.iter().enumerate() {
+                if key == target_key {
+                    idx = i;
+                    break;
+                }
+            }
+            data.macro_keys.remove(idx);
+            Handled::Yes
+        } else {
+            Handled::No
+        }
     }
 }
